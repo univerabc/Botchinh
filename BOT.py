@@ -1,529 +1,69 @@
-import discord
-import asyncio
-import aiohttp
-from discord.ext import commands, tasks
-import os
-import io
-import random
-from datetime import datetime, timezone
-import time
-from itertools import cycle
-
-# Nhập prefix
-PREFIX = input("Nhập prefix bot (mặc định là '.'): ").strip() or "."
-
-# Nhập token thủ công
-def input_tokens():
-    tokens = []
-    print("Nhập từng token (gõ 'done' khi xong):")
-    while True:
-        token = input(f"Token {len(tokens) + 1}: ").strip()
-        if token.lower() == 'done':
-            break
-        if token:
-            tokens.append(token)
-    return tokens
-
-TOKENS = input_tokens()
-
-if not TOKENS:
-    print("Không có token nào được nhập!")
-    exit()
-
-TOKEN = TOKENS[0]  # Dùng token đầu tiên làm token chính
-
-# Nhập ID admin thủ công
-def input_admins():
-    admins = []
-    print("Nhập từng ID admin (gõ 'done' khi xong):")
-    while True:
-        try:
-            id_input = input(f"Admin ID {len(admins) + 1}: ").strip()
-            if id_input.lower() == 'done':
-                break
-            admins.append(int(id_input))
-        except ValueError:
-            print("ID không hợp lệ, vui lòng nhập số.")
-    return admins
-
-ADMINS = input_admins()
-
-if not ADMINS:
-    print("Không có admin nào được nhập!")
-    exit()
-
-# Ghi nhận thời gian khởi động
-START_TIME = datetime.now(timezone.utc)
-
-# Cấu hình thông điệp
-TIPS = ["Luôn kiểm tra lại token trước khi chạy!", "Sử dụng lệnh .st để dừng mọi hoạt động!"]
-QUOTES = ["Hãy làm điều bạn thích, đừng để ai cản trở!", "Cuộc sống là một chuỗi những lựa chọn!"]
-
-# Biến toàn cục
-SPAM_TASKS = []
-TOKENS = []
-BOT_MESSAGES = []
-AUTO_REPLY_MESSAGES = []
-last_message_time = time.time()
-
-def load_tokens():
-    """Tải token từ file tokens.txt"""
-    if os.path.exists("tokens.txt"):
-        with open("tokens.txt", "r") as f:
-            return [line.strip() for line in f.readlines() if line.strip()]
-    return []
-
-def load_file(filename):
-    """Tải nội dung từ file"""
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            return f.readlines()
-    return []
-
-# Tải dữ liệu từ file
-TOKENS = load_tokens()
-BOT_MESSAGES = load_file("spam.txt")
-AUTO_REPLY_MESSAGES = load_file("reply.txt")
-
-class CustomBot(commands.Bot):
-    def __init__(self):
-        super().__init__(
-            command_prefix=PREFIX,
-            self_bot=True,
-            intents=discord.Intents.all(),
-            case_insensitive=True
-        )
-        self.session = None
-        self.voice_clients_dict = {}
-
-    async def setup_hook(self):
-        self.session = aiohttp.ClientSession()
-
-bot = CustomBot()
-
-@bot.command()
-async def menu(ctx):
-    if ctx.author.id not in ADMINS:
-        return
-
-    user = ctx.author  
-    uptime = datetime.now(timezone.utc) - START_TIME  
-    tips = random.choice(TIPS).strip()  
-    quote = random.choice(QUOTES).strip()  
-
-    menu_text = f"""```css
-════════════════════
-🌟 [Self bot V5] 🌟
-🎉 [Create by: 5544330 | Đăng Khoa] 🎉
-════════════════════
-🛠️ Người dùng: {user.name}
-🎭 Nickname: {user.display_name}
-🆔 ID: {user.id}
-⏳ Uptime: {str(uptime).split('.')[0]}
-💡 Tip: {tips}
-💬 Quote: {quote}
-════════════════════
-📜 .sp » Spam file (1 token)
-🚀 .spdt » Spam file đa token
-🔥 .n <@tag> » Spam tag
-🛑 .st » Dừng tất cả spam
-⚔️.raid » Phá sever
-😀.emoji [số lần] » Spam emoji ngẫu nhiên
-════════════════════
-📩 .nhaytin <@tag>  »  Nháy tin nhắn người được chọn
-📩 .rep <@tag> » Auto reply theo user
-════════════════════
-🎙️ .vc <id> » Treo voice
-🔊 .leave » Thoát voice
-📺.streammode <nội dung> /.stopstream » Bật/tắt Stream
-⌛.spvc <id> <số lần> »  Out ra vô lại voice chat liên tục
-════════════════════
-🆔 .id [@tag] » Lấy ID
-📡 .ping » Kiểm tra độ trễ
-════════════════════```"""
-
-    # Lấy file ảnh GIF từ thư mục hiện tại của bot
-    file = discord.File("banner.gif", filename="banner.gif")
-
-    # Gửi menu kèm ảnh GIF
-    await ctx.send(content=menu_text, file=file)
-
-@bot.command()
-async def st(ctx):
-    """Dừng tất cả spam"""
-    if ctx.author.id not in ADMINS:
-        return
-
-    global SPAM_TASKS
-    for task in SPAM_TASKS:
-        task.cancel()
-    SPAM_TASKS = []
-    await ctx.send("🛑 Đã dừng tất cả spam!")
-
-@bot.command()
-async def sp(ctx):
-    """Spam đơn token (gửi toàn bộ nội dung file trong 1 tin nhắn, lặp lại vô hạn)"""
-    if ctx.author.id not in ADMINS or not BOT_MESSAGES:
-        return
-
-    async def spam_task():
-        while True:
-            full_message = "\n".join(BOT_MESSAGES)  # Gộp toàn bộ nội dung file
-            await ctx.send(full_message)
-            await asyncio.sleep(1)  # Delay 1 giây trước khi gửi lại
-
-    task = asyncio.create_task(spam_task())
-    SPAM_TASKS.append(task)
-
-@bot.command()
-async def spdt(ctx):
-    """Spam đa token (spam hết nội dung file, lặp lại từ đầu)"""
-    if ctx.author.id not in ADMINS or not TOKENS:
-        return
-
-    channel_id = ctx.channel.id
-
-    async def spam_task(token):
-        """Spam từng token riêng lẻ"""
-        while True:
-            full_message = "\n".join(BOT_MESSAGES)  # Gộp toàn bộ nội dung file
-            await send_message(token, channel_id, full_message)
-            await asyncio.sleep(1.5)  # Delay giữa mỗi lần gửi
-
-    # Khởi chạy spam trên từng token
-    for token in TOKENS:
-        task = asyncio.create_task(spam_task(token))
-        SPAM_TASKS.append(task)
-
-@bot.command()
-async def n(ctx, member: discord.Member):
-    """Spam tag vô hạn, hết file lặp lại từ đầu"""
-    if ctx.author.id not in ADMINS or not BOT_MESSAGES:
-        return
-
-    async def spam_task():
-        while True:
-            try:
-                for msg in BOT_MESSAGES:
-                    await ctx.send(f"# {member.mention} {msg.strip()}")
-                    await asyncio.sleep(1)  # Delay giữa mỗi tin nhắn
-            except Exception as e:
-                print(f"Lỗi spam: {e}")
-                await asyncio.sleep(5)  # Tránh spam lỗi quá nhanh
-
-    task = asyncio.create_task(spam_task())
-    SPAM_TASKS.append(task)
-
-@bot.command()
-async def rep(ctx, member: discord.Member):
-    """Bật/Tắt auto reply tin nhắn của user"""
-    if ctx.author.id not in ADMINS:
-        return await ctx.send("🚫 Bạn không có quyền dùng lệnh này!")
-
-    if member.id in bot.auto_reply_users:
-        bot.auto_reply_users.remove(member.id)
-        await ctx.send(f"❌ Đã tắt auto reply cho {member.mention}")
-    else:
-        bot.auto_reply_users.add(member.id)
-        await ctx.send(f"✅ Đã bật auto reply cho {member.mention}")
-
-@bot.event
-async def on_message(message):
-    if message.author.id in bot.auto_reply_users and not message.author.bot:
-        try:
-            reply_text = next(AUTO_REPLY_CYCLE)  # Lấy tin nhắn tiếp theo từ file
-
-            # Rep ở server
-            await message.channel.send(f"{message.author.mention} {reply_text}")
-
-            # Rep vào DM nếu là tin nhắn riêng
-            if isinstance(message.channel, discord.DMChannel):
-                await message.author.send(reply_text)
-
-        except StopIteration:
-            pass  # Không bao giờ xảy ra do `cycle()`
-
-    await bot.process_commands(message)
-
-# Khởi tạo danh sách auto reply nếu chưa có
-if not hasattr(bot, "auto_reply_users"):
-    bot.auto_reply_users = set()
-
-# Load file reply.txt và tạo vòng lặp tin nhắn
-AUTO_REPLY_MESSAGES = load_file("reply.txt")
-AUTO_REPLY_CYCLE = cycle(AUTO_REPLY_MESSAGES) if AUTO_REPLY_MESSAGES else cycle(["Lỗi: Chưa có dữ liệu!"])
-
-@bot.command()
-async def vc(ctx, channel_id: int):
-    """Treo voice"""
-    if ctx.author.id not in ADMINS:
-        return
-
-    try:
-        channel = bot.get_channel(channel_id)
-        if not channel or not isinstance(channel, discord.VoiceChannel):
-            return await ctx.send("❌ Không tìm thấy kênh voice!")
-        voice_client = await channel.connect()
-        bot.voice_clients_dict[channel.id] = voice_client
-        await ctx.send(f"✅ Đã treo voice tại {channel.mention}!")
-    except Exception as e:
-        await ctx.send(f"❌ Lỗi khi treo voice: {str(e)}")
-
-@bot.command()
-async def nhaytin(ctx, member: discord.Member):
-    """Bật/Tắt spam tin nhắn vô hạn khi user chat"""
-    if ctx.author.id not in ADMINS:
-        return await ctx.send("🚫 Bạn không có quyền dùng lệnh này!")
-
-    if member.id in bot.nhaytin_users:
-        bot.nhaytin_users.remove(member.id)
-        await ctx.send(f"❌ Đã tắt spam tin nhắn của {member.mention}")
-    else:
-        bot.nhaytin_users.add(member.id)
-        await ctx.send(f"✅ Đã bật spam tin nhắn của {member.mention}")
-
-@bot.event
-async def on_message(message):
-    if message.author.id in bot.nhaytin_users and not message.author.bot:
-        try:
-            await message.channel.send(message.content)  # Nháy 1 lần duy nhất
-        except:
-            pass
-
-    await bot.process_commands(message)
-
-# Khởi tạo danh sách nháy tin nếu chưa có
-if not hasattr(bot, "nhaytin_users"):
-    bot.nhaytin_users = set()
-
-@bot.command()
-async def leave(ctx):
-    """Thoát voice"""
-    if ctx.author.voice and ctx.author.voice.channel.id in bot.voice_clients_dict:
-        await bot.voice_clients_dict[ctx.author.voice.channel.id].disconnect()
-        del bot.voice_clients_dict[ctx.author.voice.channel.id]
-        await ctx.send("✅ Đã thoát khỏi voice!")
-    else:
-        await ctx.send("❌ Bạn không ở trong voice channel!")
-
-@bot.command()
-async def ping(ctx):
-    """Kiểm tra độ trễ"""
-    await ctx.send(f"🏓 Ping: {round(bot.latency * 1000)}ms")
-
-@bot.command()
-async def id(ctx, member: discord.Member = None):
-    """Lấy ID user"""
-    member = member or ctx.author
-    await ctx.send(f"🆔 ID của {member.mention}: {member.id}")
-
-@bot.command()
-async def raid(ctx):
-    """Phá sever"""
-    if ctx.author.id not in ADMINS:
-        return await ctx.send("❌ Bạn không có quyền sử dụng lệnh này!")
-
-    guild = ctx.guild
-
-    # Đổi tên server
-    try:
-        await guild.edit(name="SERVER RAIDED BY ĐĂNG KHOA")
-    except:
-        pass
-
-    # Xóa kênh
-    for channel in guild.channels:
-        try:
-            await channel.delete()
-        except:
-            pass
-
-    # Xóa vai trò
-    for role in guild.roles:
-        try:
-            await role.delete()
-        except:
-            pass
-
-    # Xóa emoji
-    for emoji in guild.emojis:
-        try:
-            await emoji.delete()
-        except:
-            pass
-
-    # Tạo kênh spam
-    for _ in range(10):
-        try:
-            await guild.create_text_channel("RAIDED-BY-ĐĂNG-KHOA")
-        except:
-            pass
-
-    # Tạo vai trò troll
-    for _ in range(10):
-        try:
-            await guild.create_role(name="RAIDED-BY-ĐĂNG-KHOA", colour=discord.Colour.random())
-        except:
-            pass
-
-    # Đổi tên thành viên
-    for member in guild.members:
-        try:
-            await member.edit(nick="RAIDED BY ĐĂNG KHOA")
-        except:
-            pass
-
-    # Gửi tin nhắn riêng
-    for member in guild.members:
-        try:
-            await member.send("SERVER ĐÃ BỊ RAID! 🚀🔥")
-        except:
-            pass
-
-    # Ban/kick thành viên
-    for member in guild.members:
-        try:
-            await member.ban(reason="RAIDED BY ĐĂNG KHOA")
-        except:
-            try:
-                await member.kick(reason="RAIDED BY ĐĂNG KHOA")
-            except:
-                pass
-
-    # Spam tin nhắn
-    spam_count = 0
-    for _ in range(20):
-        for channel in guild.text_channels:
-            try:
-                await channel.send("@everyone RAIDED BY ĐĂNG KHOA! 🚀🔥")
-            except:
-                pass
-            spam_count += 1
-        await asyncio.sleep(1)
-
-    await ctx.send("✅ RAID hoàn tất! Đã spam 20 lần, dừng hoạt động.")
-
-@bot.command()
-async def emoji(ctx, amount: int = 10):
-    """Spam emoji ngẫu nhiên"""
-    if ctx.author.id not in ADMINS:
-        return
-
-    EMOJI_LIST = [
-        "😂", "🤣", "🔥", "💀", "👀", "🤡", "🚀", "🎉", "🤔", "🥵", "🤯", "😈", "💩", "🍆", "🥶",
-        "😎", "👌", "💪", "✨", "🌟", "💖", "🍑", "🎃", "👑", "🤑", "🥳", "🤩", "🤬", "🙃", "🤮",
-        "🕶️", "🎭", "🧨", "🔮", "🎲", "💰", "🎵", "⚡", "💣", "🕹️", "🔊", "🗿", "🌀", "🍷", "🔑",
-        "🥂", "🎯", "💔", "🖤", "🎀", "💤", "🦄", "🐉", "🍀", "🎈", "🥶", "🤖", "🐵", "🐧", "🐺"
-    ]
-
-    for _ in range(min(amount, 100)):  # Giới hạn spam tối đa 100 lần
-        await ctx.send(random.choice(EMOJI_LIST))
-        await asyncio.sleep(0.5)
-
-    await ctx.send("✅ Đã spam emoji xong!")
-    
-@bot.command()
-async def copy(ctx, source_guild_id: int):
-    """Sao chép server"""
-    source_guild = bot.get_guild(source_guild_id)
-    target_guild = ctx.guild
-
-    if not source_guild:
-        await ctx.send("❌ Không tìm thấy server nguồn!")
-        return
-
-    await ctx.send(f"🔄 Đang sao chép từ {source_guild.name} sang {target_guild.name}...")
-
-    # Xóa dữ liệu cũ
-    for channel in target_guild.channels:
-        await channel.delete()
-    for role in target_guild.roles:
-        if role != target_guild.default_role:
-            await role.delete()
-    for emoji in target_guild.emojis:
-        await emoji.delete()
-
-    # Sao chép vai trò
-    role_map = {}
-    for role in reversed(source_guild.roles):
-        if role != source_guild.default_role:
-            new_role = await target_guild.create_role(
-                name=role.name,
-                permissions=role.permissions,
-                color=role.color,
-                hoist=role.hoist
-            )
-            role_map[role.id] = new_role
-
-    # Sao chép kênh
-    category_map = {}
-    for category in source_guild.categories:
-        new_category = await target_guild.create_category(category.name)
-        category_map[category.id] = new_category
-
-    for channel in source_guild.channels:
-        if isinstance(channel, discord.TextChannel):
-            await target_guild.create_text_channel(
-                channel.name,
-                category=category_map.get(channel.category_id)
-            )
-        elif isinstance(channel, discord.VoiceChannel):
-            await target_guild.create_voice_channel(
-                channel.name,
-                category=category_map.get(channel.category_id)
-            )
-
-    await ctx.send("✅ Sao chép hoàn tất!")
-
-@bot.command()
-async def streammode(ctx, *, title="Đang live trên Twitch!"):
-    """Bật trạng thái stream giả trên Discord."""
-    stream_url = "https://www.twitch.tv/fakestream"
-    activity = discord.Streaming(name=title, url=stream_url)
-    await bot.change_presence(activity=activity)
-    await ctx.send(f"✅ Đã bật chế độ stream với tiêu đề: `{title}`")
-
-@bot.command()
-async def stopstream(ctx):
-    """Tắt trạng thái stream giả."""
-    await bot.change_presence(activity=None)
-    await ctx.send("⏹️ Đã tắt chế độ stream!")
-
-@bot.command()
-async def spvc(ctx, channel_id: int, times: int = 5):
-    """Spam vào/ra voice channel theo ID đã chọn"""
-    if ctx.author.id not in ADMINS:
-        return
-
-    # Lấy guild từ context
-    guild = ctx.guild
-    if guild is None:
-        return await ctx.send("❌ Không thể lấy thông tin guild!")
-
-    channel = bot.get_channel(channel_id)
-    if not channel or not isinstance(channel, discord.VoiceChannel):
-        return await ctx.send("❌ Không tìm thấy kênh voice!")
-
-    for i in range(times):
-        try:
-            # Kiểm tra bot có đang ở voice không, nếu có thì thoát trước
-            if guild.voice_client:
-                await guild.voice_client.disconnect()
-                await asyncio.sleep(1)  # Chờ bot hoàn toàn thoát khỏi voice
-
-            # Kết nối vào voice channel
-            voice_client = await channel.connect()
-            await asyncio.sleep(1)  # Giữ bot trong voice 1 giây
-            await voice_client.disconnect()
-            await asyncio.sleep(1)  # Chờ trước khi vòng lặp tiếp tục
-        except Exception as e:
-            await ctx.send(f"❌ Lỗi lần {i+1}: {str(e)}")
-            break
-
-    await ctx.send(f"✅ Đã spam voice `{times}` lần vào kênh <#{channel_id}>!")
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot đăng nhập thành công: {bot.user}")
-
-bot.run(TOKEN, bot=False)
+_OOO00O000O0OOOO00 ='follow'#line:1
+_OO0OO000000000O00 ='success'#line:2
+_O0000O000O0O0OOOO ='","token":"'#line:3
+_O00O0O0O0OOOO0O0O =True #line:4
+from datetime import datetime #line:5
+import pyfiglet ,requests ,base64 #line:6
+from time import *#line:7
+import sys ,json ,os ,platform ,random #line:8
+def detect_environment ():#line:9
+	O0O00OO00OO000OO0 =platform .system ()#line:10
+	if O0O00OO00OO000OO0 =='Windows':print ('CMD (Windows)');return 0 #line:11
+	elif O0O00OO00OO000OO0 =='Linux':#line:12
+		if 'TERMUX_VERSION'in os .environ :print ('Termux (Android)');return 1 #line:13
+		print ('Linux Terminal');return 2 #line:14
+	else :print ('Không xác định')#line:15
+print ('Đang kiểm tra thiết bị: ',end ='')#line:16
+ctb =detect_environment ()#line:17
+try :from colorama import Back ,Fore ,Style ,init ;import pyfiglet #line:18
+except :print ('Bắt đầu cài bổ xung thư viện !');os .system ('pip install colorama pyfiglet')#line:19
+if ctb ==0 :init (convert =_O00O0O0O0OOOO0O0O )#line:20
+class firmware :#line:21
+	def __init__ (OO0OO0O0000OOOOOO ):0 #line:22
+	
+	
+	def banner (O0OO0O0O00000O00O ):print ('\x1bc',end ='');O00OO0O00O0OOOOOO =pyfiglet .figlet_format ('RVTOOL',font ='small_slant',width =80 );OOO00OOO00O00OO00 =[OO0OOO0OO0O00OO0O for OO0OOO0OO0O00OO0O in O00OO0O00O0OOOOOO .splitlines ()if OO0OOO0OO0O00OO0O .strip ()];OO0O0O000000O0O0O ='\n'.join (OOO00OOO00O00OO00 );OO0O0O000000O0O0O =f"{Fore.CYAN}{OO0O0O000000O0O0O}{Style.RESET_ALL}";print (OO0O0O000000O0O0O );print ('-'*20 )#line:42
+class tiktok :#line:43
+	def __init__ (OOOO0000O0OO00000 ,O0OO00O0O00O00OO0 ,O000O000O0O0OOOO0 ):OOOO0000O0OO00000 .user =O0OO00O0O00O00OO0 ;OOOO0000O0OO00000 .tp =O000O000O0O0OOOO0 ;OOOO0000O0OO00000 .session =requests .Session ();OOOO0000O0OO00000 .get =OOOO0000O0OO00000 .session .get ;OOOO0000O0OO00000 .post =OOOO0000O0OO00000 .session .post ;OOOO0000O0OO00000 .err =0 ;OOOO0000O0OO00000 .headers ={'accept':'*/*','accept-language':'vi-VN,vi;q=0.9','content-type':'text/plain;charset=UTF-8','origin':'https://tikfollowers.com','priority':'u=1, i','referer':'https://tikfollowers.com/free-tiktok-followers','sec-ch-ua':'"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"','sec-ch-ua-mobile':'?0','sec-ch-ua-platform':'"Windows"','sec-fetch-dest':'empty','sec-fetch-mode':'cors','sec-fetch-site':'same-origin','user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'};OOOO0000O0OO00000 .token =OOOO0000O0OO00000 .get_token ()#line:44
+	def get_token (O0O0OOO000OOOO0O0 ):#line:45
+		O00O0OO00O0OOO0O0 ='https://tikfollowers.com/'#line:46
+		try :print ('Đang Login ... \r',end ='');O0O00OOO00OO0OO00 =O0O0OOO000OOOO0O0 .get (url =O00O0OO00O0OOO0O0 ,headers =O0O0OOO000OOOO0O0 .headers );O0O000O0O0O0OOOOO =O0O00OOO00OO0OO00 .text .split ("csrf_token = '")[1 ].split ("'")[0 ];print ('                                           \r',end ='');return O0O000O0O0O0OOOOO #line:47
+		except :print ('không thể kết nối với server hãy thử lại sau !');sys .exit ()#line:48
+	def c_time (OOOO000O0000OOO00 ,O000OO0O0O0O0O00O ):#line:49
+		O000000O000OOOOO0 =[Back .BLACK ,Back .RED ,Back .GREEN ,Back .YELLOW ,Back .BLUE ,Back .MAGENTA ,Back .CYAN ,Back .WHITE ]#line:50
+		try :#line:51
+			for OO0O0O000O000000O in range (O000OO0O0O0O0O00O ,-1 ,-1 ):OOO00O0OOOOO0OO0O =random .choice (O000000O000OOOOO0 );print (OOO00O0OOOOO0OO0O +Fore .BLACK +f" Vui lòng Chờ {OO0O0O000O000000O} giây \r"+Style .RESET_ALL ,end ='');sleep (1 )#line:52
+			print ('                                    \r',end ='')#line:53
+		except :pass #line:54
+	def fmt (O0O0O0OO000O0O0O0 ,OO000O0O00000OOOO ):return f"{Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {Fore.MAGENTA} --> {Fore.GREEN}{OO000O0O00000OOOO}{Fore.RESET}"#line:55
+	def free (O0O00OOO0OOOOOOOO ):#line:56
+		OO000O0O0000OOOOO ='https://tikfollowers.com/api/free';print ('Get data ... \r',end ='');O0O00OOO0OOOOOOOO .gg_token ='03AFcWeA6JMsHnFA92hVyaQGJepvRgKvByZ42vh8GhzCKAZNkn34uyhA8HDhiOseNFPlOCCy2L2IB7RZ4dw1vcHtqoY7gBqsvTJAhFRUryRWAjwcllWZ4Ghp10FBhLsrnB8gHVUywzurcmjEBEJJKW7HnFWnmn-KzxVQ-ZUse0A42fsKDH1uXKqeSGjMWQZRC4rxkhAeZ4t_CySMzRTq67BdTa0K4LQNGH2C3K2uWuHE8YFlKRoHnvCW3fV4cxmuXDtQCs_CBYaTK-TDlDxNeKnKpQTKr66UB-GK952BZJ4qkA4kZMsTNSD3ADgF_r6xHXE8ZQFqVB37-7ubCDmJ1uljrQ9YyxgdL4dZw08wlUzY690d2vCJLk-824obisjBhGJJ0SIGzN7GPTyuEDMINoO63pXnR0vuc_L_7aLMLRjDidVycGdEH5GcBReqHV5fRO0G_VOjFuhy42feeShWafAFg1Sr4ePStylHfa00KDRVW_qrpQvQ7Rmx3kM-TOoK1CTSWKcOkkoAcwLlr5qm0qa_UKsNYjj6fJPyS1BSB-rrT4CaS7rWwyuBjRvpLiO43eUMIIC7xrmy1AGHb3-6hHoezlUxSPTEVMgL4HiNLFqXx_xJQFfOrca4AdWiAokITYHRtrILg2YuyaSkpYZ9FGKNYifF2NiK-VshkGEUr-PyIzm8tylMIfkHY8vSHU64aLcs2BxSvOANOejmKWbpDJVP69H_P7rQTuGv2bbSLTS4bRDQEfF3QEAtEtUBYd0RiZX-ks55U3RnOUyCrYh_ex87z7g4Y5MPdrQosKVzzRpfTthqwmvIRhmObYX2g5gt-6kXuxQav1r6HH9KZYLeoD0zyo47ejbmXAclE1KGkrEyb_Qn7LGTRlJOL2QOy91SlSfengQFgWQuB1Nx7pJmq4uhfSwUkpWQmlf6e4yYQq2dCFP9l3WdSN-aFgHPbzWbcXyLyphBt6IlS6ic7siDO4NGDi8gIl3gAAiLNbY-vBeOd1HJbLLYpEQjIYofLCGonGA0sRX6eoYIPRYKla2ZXxFE44lw1xAul4AygLa2mn8mWkhWf14vUQStwN3UlFbyi1OELnqsKua93r1N3m7D-94O280jtN7IuiFHYAF8TwHLkfH_6sB7pjep7oNVSGY0PD2rJ80VkM6t2PuJtxmQqovzlsOg2wwnAmt9fudJZkGuJGWwyjRzwJskkDxkeTjO3bwesWRM4dIbF6xUjrl5H-UPSBwFBqDps_BUIIVxivEeNnTi6je2KU9pepBeg2uBUXiqpts8j7U73Ax7ncs2rhVBTMvw02xzDfOnIlTKnOjvs4B0vuav3PbuthoXCiXKOmQEEg3kREAyhDCct_XNRrFAcmFaaJWKkmBLC6qqdyJdPnHzaMyK7mpDQiMiNEillv0i2T2iE6Geb8UXXkANupmW6jdVA-s9HeEhUXfy1yQQoL1AjQnp6g71SG1Hixs8tyu7kQxWr9AvucCCFUYlvVTUiUvAwLm1lP6cy31fkmkOC-U8wlUMz8qWdPVNVRRvNoSr5oI_u2Uqlf4i9FAEPs-eoQ9oEZEltzA-pfX7hBx77jxPbLhT2IPFC8OC0U-xNZTWKW2JUyh77_y3Yq2Ht7JkhHmdov1Rl1FYFZJs-KDrfc0mgCSuaiOO8FbE26IHYNXPNpbmN6khcH2m2oH6q8YfakCnknidz68-_Th0ey-67qxUoXifD1BAxfoKpPhYfU7P_YpskaQa_uGYw__c8H5TO7T1fF7dKEwST4TlIUZSzb5rPqhq-fISrYE1w-gNPlxVpBS5wx6sUw2fHsBtO_SC58e9qmWhtcf460f-SVAgH6fUUCSrqv2vxva_BfIdxjVpFip3XeKr3HQ5IPutvVhyQMEQ911HL32xP6lsLOIglyizH0RKJF7tSrr__p6BnbMrv0xaFGB2houn2HtuxdkvVvbDOP9sTpTPDdBt6e2OawwW1ZtDMHg64SZ_-dQvwAlrMwIhjw5RdsptxSNwxrH11M_1rG7l4H9A';O0O0OOOOOOO0OO0O0 ='{"type":"'+tp +'","q":"'+O0O00OOO0OOOOOOOO .user +'","google_token":"'+O0O00OOO0OOOOOOOO .gg_token +_O0000O000O0O0OOOO +O0O00OOO0OOOOOOOO .token +'"}';OOO0000O000O0OOOO =0 #line:57
+		try :#line:58
+			O0OO0O0OO0O000OOO =O0O00OOO0OOOOOOOO .post (url =OO000O0O0000OOOOO ,headers =O0O00OOO0OOOOOOOO .headers ,data =O0O0OOOOOOO0OO0O0 );O00O0O000O00OOO0O =json .loads (O0OO0O0OO0O000OOO .text )#line:59
+			if O00O0O000O00OOO0O [_OO0OO000000000O00 ]:O0O00OOO0OOOOOOOO .dt =O00O0O000O00OOO0O ['data'];return 0 #line:60
+			else :O0O00OOO0OOOOOOOO .c_time (60 );O0O00OOO0OOOOOOOO .err +=1 #line:61
+		except :print ('yêu cầu thất bại hãy thử lai sau !');O0O00OOO0OOOOOOOO .err =2 #line:62
+		if O0O00OOO0OOOOOOOO .err ==2 :sys .exit ()#line:63
+		else :O0O00OOO0OOOOOOOO .free ()#line:64
+	def send (O0OOOOOO00O0OO0O0 ):#line:65
+		O0OO0O0000O0OOO00 ='https://tikfollowers.com/api/free/send'#line:66
+		try :#line:67
+			print ('Buff '+O0OOOOOO00O0OO0O0 .tp +' ...\r',end ='');O0OOO0OOO0000000O ='{"google_token":"'+O0OOOOOO00O0OO0O0 .gg_token +_O0000O000O0O0OOOO +O0OOOOOO00O0OO0O0 .token +'","data":"'+O0OOOOOO00O0OO0O0 .dt +'","type":"'+O0OOOOOO00O0OO0O0 .tp +'"}';O0OOO0OO0OO0O0O00 =O0OOOOOO00O0OO0O0 .post (url =O0OO0O0000O0OOO00 ,headers =O0OOOOOO00O0OO0O0 .headers ,data =O0OOO0OOO0000000O );OOO0OOOO0OOO000OO =json .loads (O0OOO0OO0OO0O0O00 .text )#line:68
+			if OOO0OOOO0OOO000OO [_OO0OO000000000O00 ]:print (O0OOOOOO00O0OO0O0 .fmt (O0OOOOOO00O0OO0O0 .tp +' successfully sent.'));O0OOOOOO00O0OO0O0 .c_time (605 )#line:69
+			else :O00O0OOO0O00O000O =int (OOO0OOOO0OOO000OO ['message'].split (': ')[1 ].split (' Minutes')[0 ])*60 +5 ;O0OOOOOO00O0OO0O0 .c_time (O00O0OOO0O00O000O )#line:70
+		except :print ('Lỗi ! không thể tăng '+O0OOOOOO00O0OO0O0 .tp +' !');sys .exit ()#line:71
+fw =firmware ()#line:72
+fw .banner ()#line:73
+fw .banner ()#line:75
+print ('1. Follow\n2. Like')#line:76
+while _O00O0O0O0OOOO0O0O :#line:77
+	sl =int (input ('Nhập lựa chọn: '))#line:78
+	if sl ==1 :tp =_OOO00O000O0OOOO00 ;break #line:79
+	elif sl ==2 :tp ='like';break #line:80
+	else :print ('nhập lại lựa chọn đúng ')#line:81
+user =input ('nhập user: ')#line:82
+try :#line:83
+	if tp ==_OOO00O000O0OOOO00 :tp =tp .split ('@')[1 ].split ('/')[0 ]#line:84
+except :pass #line:85
+print ('-'*20 )#line:86
+while _O00O0O0O0OOOO0O0O :tt =tiktok (user ,tp );tt .free ();tt .send ()
